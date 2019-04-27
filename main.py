@@ -121,3 +121,76 @@ def build_optimizer(loss, learning_rate, grad_clip):
     optimizer = train_op.apply_gradients(zip(grads, tvars))
     
     return optimizer
+
+
+
+tf.reset_default_graph()
+#sess.close()
+sess = tf.InteractiveSession()
+init = tf.global_variables_initializer()
+enc_inp, targets, dec_inp = build_inputs()     
+cell = build_lstm(lstm_size, num_layers, batch_size, keep_prob)  
+dec_outputs, dec_memory = tf.contrib.legacy_seq2seq.basic_rnn_seq2seq(enc_inp, dec_inp,  cell)
+outputs = [tf.contrib.layers.fully_connected(lstm_output, 1 , 
+                                             activation_fn = None) for lstm_output in dec_outputs]
+loss = build_loss(outputs, targets, l2_reg) 
+optimizer = build_optimizer(loss, learning_rate, grad_clip)  
+
+saver = tf.train.Saver()
+if checkpoint:
+    saver.restore(sess, path)
+    print("Checkpoint restored")
+else:              
+    tf.global_variables_initializer().run()
+
+
+counter = 0
+for e in range(epochs):
+    train_y = []
+    train_losses = []
+    train_outputs = []
+    for x_in, y_in in get_batches(x_train, y_train, batch_size):
+        feed_dict = {enc_inp[t]: x_in[:,t] for t in range(len(enc_inp))} 
+        feed_dict.update({targets[t]: y_in[:,t] for t in range(len(targets))})
+        target, outputs_, loss_, _ = sess.run([targets , outputs, loss, optimizer], 
+                                                   feed_dict = feed_dict) 
+        train_losses.append(loss_)
+        train_outputs.append(outputs_)
+        train_y.append(target)
+        counter += 1
+        if (counter % 200 == 0):
+            saver.save(sess, path)
+            
+        
+    val_pred =[]
+    val_y = []
+    val_losses = []
+        
+    for x_in, y_in in get_batches(x_valid, y_valid, batch_size):
+        feed_dict = {enc_inp[t]: x_in[:,t] for t in range(len(enc_inp))} 
+        feed_dict.update({targets[t]: y_in[:,t] for t in range(len(targets))})
+        target, outputs_, loss_  = sess.run([targets, outputs, loss], feed_dict = feed_dict) 
+        val_y.append(target)
+        val_pred.append(outputs_)
+        val_losses.append(loss_)
+    print("==================================================================") 
+    print("Epoch {}/{}: Training loss: {}....Validation loss: {}".format(e+1, epochs, np.mean(train_losses),
+                                                                           np.mean(val_losses)))
+    #print("Final test loss : {:.8f}".format(np.mean(test_losses))) 
+    
+test_pred = []
+test_y = []
+test_losses = []
+for x_in, y_in in get_batches(x_test, y_test, batch_size):
+    feed_dict = {enc_inp[t]: x_in[:,t] for t in range(len(enc_inp))} 
+    feed_dict.update({targets[t]: y_in[:,t] for t in range(len(targets))})
+    target, outputs_, loss_  = sess.run([targets, outputs, loss], feed_dict = feed_dict) 
+    test_y.append(target)
+    test_pred.append(outputs_)
+    test_losses.append(loss_)
+            
+print("==================================================================")    
+print("Final test loss : {:.8f}".format(np.mean(test_losses)))    
+             
+
+sess.close()
